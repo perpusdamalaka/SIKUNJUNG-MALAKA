@@ -588,21 +588,42 @@
 </footer>
 
 <script>
+// Ganti dengan URL dan ANON KEY dari Project Supabase Anda (Project Settings -> API)
+const supabaseUrl = 'https://xyzcompany.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR...';
+const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+// Array untuk menyimpan data lokal sementara (bila sebelumnya menggunakan localStorage)
+let records = [];
 let records = [];
 let charts = {};
 const STAFF_PASSWORD = 'perpusmalaka';
 
 // ---------- storage helpers ----------
-async function loadRecords(){
-  try{
-    const res = await window.storage.get('visitor_records', true);
-    records = res ? JSON.parse(res.value) : [];
-  }catch(e){ records = []; }
+async function loadRecords() {
+  try {
+    const { data, error } = await _supabase
+      .from('kunjungan')
+      .select('*')
+      .order('tanggal', { ascending: false });
+
+    if (error) throw error;
+    
+    // Simpan ke state lokal untuk dipakai grafik/tabel
+    records = data || [];
+    
+    // Panggil fungsi render tabel dan grafik Anda di sini
+    // renderTable(); 
+    // renderCharts();
+  } catch (error) {
+    console.error("Error mengambil data:", error.message);
+  }
 }
-async function saveRecords(){
-  try{ await window.storage.set('visitor_records', JSON.stringify(records), true); }
-  catch(e){ console.error('Gagal menyimpan data', e); }
-}
+
+// Panggil saat halaman dimuat
+document.addEventListener("DOMContentLoaded", () => {
+   loadRecords();
+});
 
 // ---------- subnav area pengunjung (publik) ----------
 document.querySelectorAll('.nav-btn-pub').forEach(btn=>{
@@ -697,41 +718,59 @@ tujuanSel.addEventListener('change', ()=>{
   }
 });
 
-document.getElementById('visitForm').addEventListener('submit', async (e)=>{
+const visitForm = document.getElementById('visitForm');
+
+visitForm.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const jk = document.querySelector('input[name=jk]:checked');
-  if(!jk){ alert('Pilih jenis kelamin.'); return; }
-  if(kategoriSel.value !== 'Umum' && !asalInput.value.trim()){
-    alert('Asal Sekolah/Instansi wajib diisi untuk kategori ini.');
-    asalInput.focus();
-    return;
-  }
-  let tujuan = tujuanSel.value;
-  if(tujuan === 'Lain-lain'){
-    if(!tujuanLainInput.value.trim()){ alert('Sebutkan tujuan kunjungan lainnya.'); return; }
-    tujuan = 'Lain-lain: ' + tujuanLainInput.value.trim();
+
+  // Ambil nilai dari input
+  const nama = document.getElementById('f_nama').value.trim();
+  const jkEl = document.querySelector('input[name=jk]:checked');
+  const alamatKtp = document.getElementById('f_alamatktp').value.trim();
+  const alamatTinggal = document.getElementById('f_alamattinggal').value.trim();
+  const kategori = document.getElementById('f_kategori').value;
+  const asal = document.getElementById('f_asal').value.trim() || '-';
+  
+  let tujuan = document.getElementById('f_tujuan').value;
+  if(tujuan === 'Lain-lain') {
+    tujuan = 'Lain-lain: ' + document.getElementById('f_tujuan_lain').value.trim();
   }
 
+  // Generate tanggal dan waktu saat ini jika tidak ada input khusus di form
   const now = new Date();
-  const rec = {
-    id: Date.now().toString(36)+Math.random().toString(36).slice(2,7),
-    tanggal: now.toISOString().slice(0,10),
-    waktu: now.toTimeString().slice(0,5),
-    nama: document.getElementById('f_nama').value.trim(),
-    jk: jk.value,
-    alamatKtp: document.getElementById('f_alamatktp').value.trim(),
-    alamatTinggal: document.getElementById('f_alamattinggal').value.trim(),
-    kategori: kategoriSel.value,
-    asal: kategoriSel.value === 'Umum' ? (asalInput.value.trim() || '-') : asalInput.value.trim(),
-    tujuan: tujuan
+  const tanggal = now.toISOString().slice(0,10);
+  const waktu = now.toTimeString().slice(0,5);
+
+  const newData = {
+    nama: nama,
+    jk: jkEl ? jkEl.value : '',
+    alamat_ktp: alamatKtp,
+    alamat_tinggal: alamatTinggal,
+    kategori: kategori,
+    asal: asal,
+    tujuan: tujuan,
+    tanggal: tanggal,
+    waktu: waktu
   };
 
-  records.push(rec);
-  await saveRecords();
-  e.target.reset();
-  wrapTujuanLain.style.display = 'none';
-  hintAsal.textContent = 'Wajib diisi, kecuali kategori Umum.';
-  showToast('Terima kasih, ' + rec.nama + '! Data kunjungan tersimpan.');
+  try {
+    const { data, error } = await _supabase
+      .from('kunjungan')
+      .insert([newData])
+      .select();
+
+    if (error) throw error;
+
+    alert('Data kunjungan berhasil disimpan!');
+    visitForm.reset();
+    
+    // Refresh tabel/data setelah insert
+    await loadRecords(); 
+
+  } catch (error) {
+    console.error("Gagal menyimpan data:", error.message);
+    alert('Terjadi kesalahan saat menyimpan data.');
+  }
 });
 
 function showToast(msg){
@@ -1046,8 +1085,9 @@ document.getElementById('modalCloseBtn').addEventListener('click', closeEditModa
 document.getElementById('modalCancelBtn').addEventListener('click', closeEditModal);
 editModal.addEventListener('click', (e)=>{ if(e.target === editModal) closeEditModal(); });
 
-editForm.addEventListener('submit', async (e)=>{
+editForm.addEventListener('submit', async (e) => {
   e.preventDefault();
+  
   const id = document.getElementById('edit_id').value;
   const jkEl = document.querySelector('input[name=edit_jk]:checked');
   if(!jkEl){ alert('Pilih jenis kelamin.'); return; }
@@ -1059,32 +1099,41 @@ editForm.addEventListener('submit', async (e)=>{
     tujuan = 'Lain-lain: ' + lain;
   }
 
-  const idx = records.findIndex(r=>r.id === id);
-  if(idx === -1){ alert('Data tidak ditemukan.'); return; }
-
-  records[idx] = Object.assign({}, records[idx], {
+  const updatedData = {
     nama: document.getElementById('edit_nama').value.trim(),
     jk: jkEl.value,
-    alamatKtp: document.getElementById('edit_alamatktp').value.trim(),
-    alamatTinggal: document.getElementById('edit_alamattinggal').value.trim(),
+    alamat_ktp: document.getElementById('edit_alamatktp').value.trim(),
+    alamat_tinggal: document.getElementById('edit_alamattinggal').value.trim(),
     kategori: document.getElementById('edit_kategori').value,
     asal: document.getElementById('edit_asal').value.trim() || '-',
     tujuan: tujuan,
     tanggal: document.getElementById('edit_tanggal').value,
-    waktu: document.getElementById('edit_waktu').value,
-  });
+    waktu: document.getElementById('edit_waktu').value
+  };
 
-  await saveRecords();
-  closeEditModal();
-  renderTable();
-  renderReports();
-  showToast('Data berhasil diperbarui.');
+  try {
+    const { data, error } = await _supabase
+      .from('kunjungan')
+      .update(updatedData)
+      .eq('id', id); // pastikan kolom 'id' adalah UUID di Supabase
+
+    if (error) throw error;
+
+    alert('Data berhasil diperbarui!');
+    closeEditModal();
+    
+    // Reload ulang records dari Supabase
+    await loadRecords(); 
+  } catch (error) {
+    console.error("Gagal update:", error.message);
+  }
 });
-
+  
 (async function init(){
   await loadRecords();
   showArea('pengunjung');
 })();
 </script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </body>
 </html>
