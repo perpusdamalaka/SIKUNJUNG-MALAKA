@@ -108,6 +108,7 @@
     font-weight:700; font-family:'Source Sans 3'; font-size:.95rem; cursor:pointer;}
   .btn:hover{background:var(--red-dark);}
   .btn.secondary{background:var(--paper-2); color:var(--ink); border:1px solid var(--line);}
+  .btn:disabled{opacity:.45; cursor:not-allowed;}
   .btn.small{padding:6px 12px; font-size:.8rem;}
   .btn.gold{background:var(--gold); color:var(--ink);}
 
@@ -437,6 +438,14 @@
           <strong>Belum ada data</strong>
           Data kunjungan akan muncul di sini setelah formulir diisi.
         </div>
+        <div class="pagination no-print" id="dataPagination" style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:14px; flex-wrap:wrap;">
+          <div class="hint" id="paginationInfo"></div>
+          <div style="display:flex; gap:6px; align-items:center;">
+            <button class="btn secondary small" id="btnPrevPage">&laquo; Sebelumnya</button>
+            <span class="hint" id="paginationPages"></span>
+            <button class="btn secondary small" id="btnNextPage">Selanjutnya &raquo;</button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -713,7 +722,7 @@ function showArea(name){
   }
 }
 
-let isStaffLoggedIn = false;
+let isStaffLoggedIn = (sessionStorage.getItem('sikunjung_staff_login') === '1');
 btnRolePengunjung.addEventListener('click', ()=> showArea('pengunjung'));
 btnRolePetugas.addEventListener('click', ()=>{
   showArea(isStaffLoggedIn ? 'petugas' : 'login');
@@ -723,6 +732,7 @@ document.getElementById('loginForm').addEventListener('submit', (e)=>{
   const pw = document.getElementById('f_password').value;
   if(pw === STAFF_PASSWORD){
     isStaffLoggedIn = true;
+    sessionStorage.setItem('sikunjung_staff_login', '1');
     document.getElementById('f_password').value = '';
     showArea('petugas');
   } else {
@@ -731,6 +741,7 @@ document.getElementById('loginForm').addEventListener('submit', (e)=>{
 });
 document.getElementById('btnLogout').addEventListener('click', ()=>{
   isStaffLoggedIn = false;
+  sessionStorage.removeItem('sikunjung_staff_login');
   showArea('pengunjung');
 });
 
@@ -846,11 +857,22 @@ function getFiltered(){
   }).sort((a,b)=> (b.tanggal+b.waktu).localeCompare(a.tanggal+a.waktu));
 }
 
+let currentPage = 1;
+const ROWS_PER_PAGE = 10;
+
 function renderTable(){
   const tbody = document.getElementById('dataTbody');
   const list = getFiltered();
   document.getElementById('dataEmpty').style.display = list.length ? 'none' : 'block';
-  tbody.innerHTML = list.map(r=>`
+
+  const totalPages = Math.max(1, Math.ceil(list.length / ROWS_PER_PAGE));
+  if(currentPage > totalPages) currentPage = totalPages;
+  if(currentPage < 1) currentPage = 1;
+
+  const startIdx = (currentPage - 1) * ROWS_PER_PAGE;
+  const pageList = list.slice(startIdx, startIdx + ROWS_PER_PAGE);
+
+  tbody.innerHTML = pageList.map(r=>`
     <tr>
       <td>${r.tanggal}<br><span style="color:var(--muted); font-size:.75rem;">${r.waktu}</span></td>
       <td>${escapeHtml(r.nama)}</td>
@@ -865,6 +887,16 @@ function renderTable(){
       </td>
     </tr>
   `).join('');
+
+  const pagination = document.getElementById('dataPagination');
+  if(pagination){
+    pagination.style.display = list.length ? 'flex' : 'none';
+    document.getElementById('paginationInfo').textContent =
+      list.length ? `Menampilkan ${startIdx+1}-${Math.min(startIdx+ROWS_PER_PAGE, list.length)} dari ${list.length} data` : '';
+    document.getElementById('paginationPages').textContent = `Halaman ${currentPage} / ${totalPages}`;
+    document.getElementById('btnPrevPage').disabled = currentPage <= 1;
+    document.getElementById('btnNextPage').disabled = currentPage >= totalPages;
+  }
 
   tbody.querySelectorAll('[data-del]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
@@ -892,13 +924,22 @@ function escapeHtml(s){
   return (s||'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 ['filter_nama','filter_kategori','filter_tanggal'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', renderTable);
-  document.getElementById(id).addEventListener('change', renderTable);
+  document.getElementById(id).addEventListener('input', ()=>{ currentPage = 1; renderTable(); });
+  document.getElementById(id).addEventListener('change', ()=>{ currentPage = 1; renderTable(); });
 });
 document.getElementById('btn_reset_filter').addEventListener('click', ()=>{
   document.getElementById('filter_nama').value='';
   document.getElementById('filter_kategori').value='';
   document.getElementById('filter_tanggal').value='';
+  currentPage = 1;
+  renderTable();
+});
+document.getElementById('btnPrevPage').addEventListener('click', ()=>{
+  currentPage--;
+  renderTable();
+});
+document.getElementById('btnNextPage').addEventListener('click', ()=>{
+  currentPage++;
   renderTable();
 });
 
@@ -1177,7 +1218,7 @@ editForm.addEventListener('submit', async (e)=>{
 
 (async function init(){
   await loadRecords();
-  showArea('pengunjung');
+  showArea(isStaffLoggedIn ? 'petugas' : 'pengunjung');
 })();
 </script>
 </body>
